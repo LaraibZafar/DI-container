@@ -1,7 +1,6 @@
 import "reflect-metadata";
 
 
-const world = 'world';
 
 function MyDecorator(metadata: string) {
   return function (target: any, propertyKey: string) {
@@ -25,8 +24,17 @@ function trackProperties(target: any, key: string) {
 class ClassB {
   public publicField: string;
 
-  constructor() {
-    this.publicField = '';
+  /** @todo fix this, circular dependency issue */
+  /** @todo we might have to go to setter injection to resolve this? */
+  // private instanceA: ClassA;
+
+  // constructor(instanceA: ClassA) {
+  //   this.publicField = 'yo';
+  //   this.instanceA = instanceA;
+  // }
+
+  constructor(instanceA: ClassA) {
+    this.publicField = 'yo';
   }
 }
 @Injectable()
@@ -45,6 +53,10 @@ class ClassA {
     this.privateField = 1;
     this.publicField = '';
     this.instanceB = instanceB;
+  }
+
+  poopies() {
+    return this.instanceB.publicField;
   }
 }
 
@@ -101,7 +113,7 @@ class Injector implements DependencyInjector {
   }
 }
 
-export function hello(who: string = world): string {
+export function main(): string {
   // const instance = new ClassA();
   // const classPrototype = Object.getOwnPropertySymbols(instance);
 
@@ -116,9 +128,8 @@ export function hello(who: string = world): string {
   // console.log(metadata);
 
   const injector = new Injector();
-  injector.inject<ClassA>(ClassA);
-  
-  return `Hello! `;
+  const injectedInstance = injector.inject<ClassA>(ClassA);
+  return injectedInstance.poopies();
 }
 
-console.log(hello());
+console.log(main());

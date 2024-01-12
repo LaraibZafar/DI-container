@@ -1,4 +1,19 @@
+import "reflect-metadata";
+
+
 const world = 'world';
+
+function MyDecorator(metadata: string) {
+  return function (target: any, propertyKey: string) {
+    Reflect.defineMetadata("my-decorator", metadata, target, propertyKey);
+  };
+}
+
+function Injectable() {
+  return function (target: any) {
+    Reflect.defineMetadata("injectable", true, target);
+  };
+}
 
 function trackProperties(target: any, key: string) {
   if (!target.hasOwnProperty("__trackedFields")) {
@@ -6,34 +21,32 @@ function trackProperties(target: any, key: string) {
   }
   target.__trackedFields.push(key);
 }
-class ExampleClass {
-  @trackProperties
-  private privateField: number;
-  
-  @trackProperties
+@Injectable()
+class ClassB {
   public publicField: string;
 
   constructor() {
-    this.privateField = 1;
     this.publicField = '';
   }
 }
-
-export function hello(who: string = world): string {
-  const instance = new ExampleClass();
-  const classPrototype = Object.getOwnPropertySymbols(instance);
-
-  const fields: string[] = Object.getOwnPropertyNames(classPrototype);
-  console.log(fields);
-
-  // @ts-ignore
-  const trackedFields: string[] = instance.__trackedFields || [];
-  console.log(trackedFields);
+@Injectable()
+class ClassA {
+  @trackProperties
+  @MyDecorator("some metadata")
+  private privateField: number;
   
-  return `Hello! `;
-}
+  @trackProperties
+  @MyDecorator("some metadata")
+  public publicField: string;
 
-console.log(hello());
+  private instanceB: ClassB;
+
+  constructor(instanceB: ClassB) {
+    this.privateField = 1;
+    this.publicField = '';
+    this.instanceB = instanceB;
+  }
+}
 
 interface DependencyContainer {
   isRegistered(identifier: symbol): boolean;
@@ -42,11 +55,9 @@ interface DependencyContainer {
   get<T>(identifier: symbol): T
 }
 
-interface Injector {
-  isRegistered(identifier: symbol): boolean;
-  /** @todo make sure implementation is actually an implementation  **/
-  register<T>(identifier: symbol, implementation: T): void;
-  get<T>(identifier: symbol): T
+interface DependencyInjector {
+  /** @todo make it static */
+  inject<T>(target: any): T;
 }
 
 interface Record<T> {
@@ -74,3 +85,40 @@ class Container implements DependencyContainer {
   }
   
 }
+
+class Injector implements DependencyInjector {
+  inject<T>(target: any): T {
+    const isInjectable = Reflect.getMetadata("injectable", target);
+    if (!isInjectable) {
+      throw new Error(`Target ${target} is not injectable`);
+    }
+
+    /** @desc gets constructor parameters */
+    const dependencies: Array<any> = Reflect.getMetadata("design:paramtypes", target) || [];
+    console.log(`dependencies : ${dependencies.length}`);
+    const instances = dependencies.map((dep) => this.inject(dep));
+    return new target(...instances);
+  }
+}
+
+export function hello(who: string = world): string {
+  // const instance = new ClassA();
+  // const classPrototype = Object.getOwnPropertySymbols(instance);
+
+  // const fields: string[] = Object.getOwnPropertyNames(classPrototype);
+  // console.log(fields);
+
+  // // @ts-ignore
+  // const trackedFields: string[] = instance.__trackedFields || [];
+  // console.log(trackedFields);
+  
+  // const metadata = Reflect.getMetadata("my-decorator", ClassA.prototype, "privateField");
+  // console.log(metadata);
+
+  const injector = new Injector();
+  injector.inject<ClassA>(ClassA);
+  
+  return `Hello! `;
+}
+
+console.log(hello());

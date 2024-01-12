@@ -1,7 +1,36 @@
 const world = 'world';
 
+function trackProperties(target: any, key: string) {
+  if (!target.hasOwnProperty("__trackedFields")) {
+    Object.defineProperty(target, "__trackedFields", { value: [] });
+  }
+  target.__trackedFields.push(key);
+}
+class ExampleClass {
+  @trackProperties
+  private privateField: number;
+  
+  @trackProperties
+  public publicField: string;
+
+  constructor() {
+    this.privateField = 1;
+    this.publicField = '';
+  }
+}
+
 export function hello(who: string = world): string {
-  return `Hello ${who}! `;
+  const instance = new ExampleClass();
+  const classPrototype = Object.getOwnPropertySymbols(instance);
+
+  const fields: string[] = Object.getOwnPropertyNames(classPrototype);
+  console.log(fields);
+
+  // @ts-ignore
+  const trackedFields: string[] = instance.__trackedFields || [];
+  console.log(trackedFields);
+  
+  return `Hello! `;
 }
 
 console.log(hello());

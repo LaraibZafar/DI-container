@@ -24,6 +24,7 @@ function trackProperties(target: any, key: string) {
 class ClassB {
   public publicField: string;
 
+  /** @dumbass constructor dependency injection will always have circular dependency as a potential issue */
   /** @todo fix this, circular dependency issue */
   /** @todo we might have to go to setter injection to resolve this? */
   // private instanceA: ClassA;
@@ -33,7 +34,7 @@ class ClassB {
   //   this.instanceA = instanceA;
   // }
 
-  constructor(instanceA: ClassA) {
+  constructor() {
     this.publicField = 'yo';
   }
 }
@@ -61,10 +62,12 @@ class ClassA {
 }
 
 interface DependencyContainer {
-  isRegistered(identifier: symbol): boolean;
+  register<T>(identifier: string, implementation: new (...args: any[]) => T): void;
+  getImplementation<T>(identifier: string): any;
+  isSet(identifier: string): boolean;
   /** @todo make sure implementation is actually an implementation  **/
-  register<T>(identifier: symbol, implementation: T): void;
-  get<T>(identifier: symbol): T
+  set<T>(identifier: string, instance: T): void;
+  get<T>(identifier: string): T
 }
 
 interface DependencyInjector {
@@ -72,26 +75,42 @@ interface DependencyInjector {
   inject<T>(target: any): T;
 }
 
-interface Record<T> {
-  value: T;
-}
-
 class Container implements DependencyContainer {
   /** @todo bypass this any **/
   // @ts-ignore
-  private dependencyMap: Map<symbol, any>
-  isRegistered(identifier: symbol): boolean {
+  private dependencyMap = new Map<string, any>();
+
+  private SymbolToImplementationMapping = new Map<string, new (...args: any[]) => any>();
+
+  register<T>(identifier: string, implementation: new (...args: any[]) => T): void {
+    console.log(`register : ${JSON.stringify(implementation.name)}`);
+    Reflect.defineMetadata("identifier", identifier, implementation);
+    this.SymbolToImplementationMapping.set(identifier, implementation);
+  }
+
+  getImplementation<T>(identifier: string):  new (...args: any[]) => T {
+    const implementation = this.SymbolToImplementationMapping.get(identifier)
+    console.log(`getImplementation 1- : ${JSON.stringify(implementation?.prototype)}`);
+    console.log(`getImplementation 2- : ${JSON.stringify(implementation?.name)}`);
+
+    if (!implementation) throw new Error(`Trying to get an instance before registering it : ${String(identifier)}`);
+
+    return implementation;
+  }
+
+  isSet(identifier: string): boolean {
     return this.dependencyMap.has(identifier);
 
   }
-  register<T>(identifier: symbol, implementation: T): void {
+  set<T>(identifier: string, instance: T): void {
     /** @todo initialize an instance of the implementation class?  */
-    this.dependencyMap.set(identifier, implementation);
+    this.dependencyMap.set(identifier, instance);
   }
-  get<T>(identifier: symbol): T {
+
+  get<T>(identifier: string): T {
     const instance = this.dependencyMap.get(identifier);
 
-    if (!instance) throw new Error(`Instance not registered for symbol : ${String(identifier)}`);
+    if (!instance) throw new Error(`Instance not registered for string : ${String(identifier)}`);
 
     return instance;
   }
@@ -99,36 +118,64 @@ class Container implements DependencyContainer {
 }
 
 class Injector implements DependencyInjector {
-  inject<T>(target: any): T {
-    const isInjectable = Reflect.getMetadata("injectable", target);
+
+  private dependencyContainer: DependencyContainer;
+
+  constructor(dependencyContainer: DependencyContainer) {
+    this.dependencyContainer = dependencyContainer;
+  }
+  inject<T>(target: string): T {
+    const targetImplementation = this.dependencyContainer.getImplementation<T>(target);
+    const isInjectable = Reflect.getMetadata("injectable", targetImplementation);
     if (!isInjectable) {
-      throw new Error(`Target ${target} is not injectable`);
+      throw new Error(`Target ${String(target)} is not injectable`);
     }
 
+    /** @confusion how do I retrieve the instances of classes that don't even have a string? */
+    /** @resolution Every class needs to be registered against a string prior to the service being initialized */
+    const preExistingInstance = this.dependencyContainer.isSet(target);
+    
+    if (preExistingInstance)
+      return this.dependencyContainer.get<typeof targetImplementation>(target);
+
     /** @desc gets constructor parameters */
-    const dependencies: Array<any> = Reflect.getMetadata("design:paramtypes", target) || [];
-    console.log(`dependencies : ${dependencies.length}`);
-    const instances = dependencies.map((dep) => this.inject(dep));
-    return new target(...instances);
+    const dependencies: Array<any> = Reflect.getMetadata("design:paramtypes", targetImplementation) || [];
+
+    // const injectionTokens=
+    // Reflect.getOwnMetadata('injectionTokens', target) || {};
+
+    // console.log(`injectionTokens : ${JSON.stringify(injectionTokens)}`);
+
+    console.log(`dependencies : ${JSON.stringify(dependencies)}`);
+
+    const instances = dependencies.map((dep) => {
+    const dependencySymbol = Reflect.getMetadata("identifier", dep);
+      
+      return this.inject(dependencySymbol)
+    });
+
+    const targetInstance = new targetImplementation(...instances);
+
+    /** @confusion how do I register these instances against a string */
+    /** @resolution Every class needs to be registered against a string prior to the service being initialized */
+    this.dependencyContainer.register<typeof targetInstance>('', targetInstance);
+
+    return targetInstance;
   }
+
+
 }
 
 export function main(): string {
-  // const instance = new ClassA();
-  // const classPrototype = Object.getOwnPropertySymbols(instance);
 
-  // const fields: string[] = Object.getOwnPropertyNames(classPrototype);
-  // console.log(fields);
+  const container = new Container()
+  container.register('ClassA', ClassA);
+  container.register('ClassB', ClassB);
 
-  // // @ts-ignore
-  // const trackedFields: string[] = instance.__trackedFields || [];
-  // console.log(trackedFields);
-  
-  // const metadata = Reflect.getMetadata("my-decorator", ClassA.prototype, "privateField");
-  // console.log(metadata);
+  const x = container.getImplementation('ClassA');
+  const injector = new Injector(container);
 
-  const injector = new Injector();
-  const injectedInstance = injector.inject<ClassA>(ClassA);
+  const injectedInstance = injector.inject<ClassA>('ClassA');
   return injectedInstance.poopies();
 }
 

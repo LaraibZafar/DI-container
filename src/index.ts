@@ -41,8 +41,6 @@ export function main(): string {
 
   const injector = new Injector(container);
 
-  injector.inject<ClassB>('ClassB');
-
   const injectedInstance = injector.inject<ClassA>('ClassA');
   return injectedInstance.consumeB();
 }
